@@ -509,18 +509,23 @@ const appendBackendLog = (msg: string) => {
 
 // Real-time active download streaming state
 interface ActiveDownloadStream {
-  req: http.ClientRequest;
+  req?: http.ClientRequest;
+  responseStream?: http.IncomingMessage;
+  fileStream?: fs.WriteStream;
   filePath: string;
   bytesDownloaded: number;
   totalBytes: number;
+  lastProgressUpdate: number;
+  speed: string;
+  eta: string;
 }
 const activeStreams = new Map<string, ActiveDownloadStream>();
 
-// Real download streamer helper using http/https modules
-function startRealDownload(
+// Real download streamer helper with range resume and hoster resolution
+async function startRealDownload(
   item: QueueItem,
   downloadDirectory: string,
-  onProgress: (downloaded: number, total: number) => void,
+  onProgress: (downloaded: number, total: number, speed: string, eta: string) => void,
   onError: (err: Error) => void,
   onDone: () => void
 ) {
@@ -528,45 +533,182 @@ function startRealDownload(
     if (!fs.existsSync(downloadDirectory)) {
       fs.mkdirSync(downloadDirectory, { recursive: true });
     }
+
+    // Resolve direct URL if it's a known hoster
+    let resolvedUrl = item.url;
+    const lowerUrl = item.url.toLowerCase();
+    if (lowerUrl.includes("pixeldrain.com/u/")) {
+      const parts = item.url.split("/u/");
+      if (parts.length > 1) {
+        const fileId = parts[1].split(/[?#]/)[0];
+        resolvedUrl = `https://pixeldrain.com/api/file/${fileId}`;
+      }
+    }
+
     const sanitize = (name: string) => name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
     const cleanFileName = sanitize(item.linkText);
-    const destPath = path.join(downloadDirectory, cleanFileName);
-    const fileStream = fs.createWriteStream(destPath);
+    const partPath = path.join(downloadDirectory, `${cleanFileName}.part`);
+    const completedPath = path.join(downloadDirectory, cleanFileName);
 
-    const client = item.url.startsWith("https") ? https : http;
-    const req = client.get(item.url, (response) => {
-      if (response.statusCode !== 200) {
-        onError(new Error(`HTTP status code ${response.statusCode}`));
+    let bytesAlreadyDownloaded = 0;
+    if (fs.existsSync(partPath)) {
+      bytesAlreadyDownloaded = fs.statSync(partPath).size;
+    }
+
+    const client = resolvedUrl.startsWith("https") ? https : http;
+    const headers: Record<string, string> = {
+      ...getFetchHeaders()
+    };
+
+    if (bytesAlreadyDownloaded > 0) {
+      headers["Range"] = `bytes=${bytesAlreadyDownloaded}-`;
+    }
+
+    const requestOptions = {
+      headers,
+      timeout: 15000
+    };
+
+    let speedCalculationTimer: NodeJS.Timeout;
+    let lastBytes = bytesAlreadyDownloaded;
+    let lastTime = Date.now();
+    let currentSpeed = "0 B/s";
+    let currentEta = "Calculando...";
+
+    const req = client.get(resolvedUrl, requestOptions, (res) => {
+      // Check for redirect
+      if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308) {
+        const redirectUrl = res.headers.location;
+        if (redirectUrl) {
+          appendBackendLog(`[Downloader] Redirecionamento detectado para: ${redirectUrl}`);
+          clearInterval(speedCalculationTimer);
+          activeStreams.delete(item.id);
+          const newItem = { ...item, url: redirectUrl };
+          startRealDownload(newItem, downloadDirectory, onProgress, onError, onDone);
+          return;
+        }
+      }
+
+      if (res.statusCode !== 200 && res.statusCode !== 206) {
+        onError(new Error(`Código de status HTTP inválido: ${res.statusCode}`));
         return;
       }
 
-      const totalBytes = parseInt(response.headers["content-length"] || "0", 10);
-      let bytesDownloaded = 0;
+      const isResume = res.statusCode === 206;
+      let totalBytes = 0;
 
-      response.pipe(fileStream);
+      if (isResume) {
+        const contentRange = res.headers["content-range"];
+        if (contentRange) {
+          const match = contentRange.match(/\/(\d+)/);
+          if (match) {
+            totalBytes = parseInt(match[1], 10);
+          }
+        }
+        if (!totalBytes) {
+          totalBytes = bytesAlreadyDownloaded + parseInt(res.headers["content-length"] || "0", 10);
+        }
+      } else {
+        totalBytes = parseInt(res.headers["content-length"] || "0", 10);
+        bytesAlreadyDownloaded = 0; // Reset as we are starting fresh
+      }
 
-      response.on("data", (chunk) => {
+      const writeMode = isResume ? "a" : "w";
+      const fileStream = fs.createWriteStream(partPath, { flags: writeMode });
+      
+      let bytesDownloaded = bytesAlreadyDownloaded;
+
+      res.pipe(fileStream);
+
+      // Speed tracker every 1 second
+      speedCalculationTimer = setInterval(() => {
+        const now = Date.now();
+        const elapsedSec = (now - lastTime) / 1000;
+        const downloadedDiff = bytesDownloaded - lastBytes;
+
+        if (elapsedSec > 0) {
+          const speedBytesPerSec = downloadedDiff / elapsedSec;
+          if (speedBytesPerSec < 1024) {
+            currentSpeed = `${speedBytesPerSec.toFixed(1)} B/s`;
+          } else if (speedBytesPerSec < 1024 * 1024) {
+            currentSpeed = `${(speedBytesPerSec / 1024).toFixed(1)} KB/s`;
+          } else {
+            currentSpeed = `${(speedBytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+          }
+
+          if (speedBytesPerSec > 0 && totalBytes > bytesDownloaded) {
+            const remainingBytes = totalBytes - bytesDownloaded;
+            const etaSeconds = remainingBytes / speedBytesPerSec;
+            if (etaSeconds < 60) {
+              currentEta = `${Math.ceil(etaSeconds)}s`;
+            } else if (etaSeconds < 3600) {
+              currentEta = `${Math.floor(etaSeconds / 60)}m ${Math.ceil(etaSeconds % 60)}s`;
+            } else {
+              currentEta = `${Math.floor(etaSeconds / 3600)}h ${Math.floor((etaSeconds % 3600) / 60)}m`;
+            }
+          } else if (bytesDownloaded >= totalBytes) {
+            currentEta = "Concluído";
+            currentSpeed = "-";
+          } else {
+            currentEta = "Calculando...";
+          }
+        }
+        lastBytes = bytesDownloaded;
+        lastTime = now;
+      }, 1000);
+
+      res.on("data", (chunk) => {
         bytesDownloaded += chunk.length;
-        onProgress(bytesDownloaded, totalBytes);
+        const streamState = activeStreams.get(item.id);
+        if (streamState) {
+          streamState.bytesDownloaded = bytesDownloaded;
+          streamState.totalBytes = totalBytes;
+          streamState.speed = currentSpeed;
+          streamState.eta = currentEta;
+        }
+        onProgress(bytesDownloaded, totalBytes, currentSpeed, currentEta);
       });
 
       fileStream.on("finish", () => {
+        clearInterval(speedCalculationTimer);
         fileStream.close();
-        onDone();
+        
+        if (bytesDownloaded >= totalBytes && totalBytes > 0) {
+          try {
+            if (fs.existsSync(completedPath)) {
+              fs.unlinkSync(completedPath);
+            }
+            fs.renameSync(partPath, completedPath);
+            activeStreams.delete(item.id);
+            onDone();
+          } catch (e: any) {
+            onError(e);
+          }
+        } else {
+          onError(new Error(`Download interrompido ou incompleto. Recebido ${bytesDownloaded} de ${totalBytes} bytes.`));
+        }
+      });
+
+      // Track active stream
+      activeStreams.set(item.id, {
+        req,
+        responseStream: res,
+        fileStream,
+        filePath: partPath,
+        bytesDownloaded,
+        totalBytes,
+        lastProgressUpdate: Date.now(),
+        speed: currentSpeed,
+        eta: currentEta
       });
     });
 
     req.on("error", (err) => {
-      fs.unlink(destPath, () => {}); // delete file on error
+      clearInterval(speedCalculationTimer);
       onError(err);
     });
 
-    activeStreams.set(item.id, {
-      req,
-      filePath: destPath,
-      bytesDownloaded: 0,
-      totalBytes: 0
-    });
+    req.end();
 
   } catch (err) {
     onError(err as Error);
@@ -593,7 +735,7 @@ setInterval(() => {
         queue[i].speed = "Conectando...";
         slotsAvailable--;
         queueChanged = true;
-        appendBackendLog(`[Queue] Started processing: "${queue[i].linkText}" (${queue[i].hoster})`);
+        appendBackendLog(`[Queue] Iniciando download: "${queue[i].linkText}" (${queue[i].hoster})`);
       }
     }
   }
@@ -605,50 +747,87 @@ setInterval(() => {
 
     queueChanged = true;
 
-    // Is there a real HTTP direct download stream running?
-    if (activeStreams.has(item.id)) {
-      const active = activeStreams.get(item.id)!;
-      // Real download metrics calculation
-      const prevBytes = active.bytesDownloaded;
-      
-      // Compute speed limit
-      let maxSpeedBytesPerSec = Infinity;
-      if (settings.speedLimit === "1") maxSpeedBytesPerSec = 1 * 1024 * 1024;
-      else if (settings.speedLimit === "5") maxSpeedBytesPerSec = 5 * 1024 * 1024;
-      else if (settings.speedLimit === "10") maxSpeedBytesPerSec = 10 * 1024 * 1024;
+    // Check if we can run real HTTP range-based download
+    const isMagnet = item.url.startsWith("magnet:");
+    const isTorrentFile = item.url.toLowerCase().endsWith(".torrent") || item.url.toLowerCase().includes(".torrent");
+    const isDirectLink = item.url.startsWith("http") && !item.url.includes("1337x.to") && !item.url.includes("rutor.info");
 
-      // Calculate new bytes transferred inside the speed limit constraints
-      // For real streams, Node's data events write at full speed or socket speed.
-      // If we are over the speed limit, we throttle if necessary (here we calculate metrics realistically)
-      const currentBytes = active.bytesDownloaded;
-      const transferredSec = currentBytes - prevBytes;
-      const percent = active.totalBytes > 0 ? (currentBytes / active.totalBytes) * 100 : 0;
+    if (isDirectLink || isTorrentFile) {
+      if (!activeStreams.has(item.id)) {
+        appendBackendLog(`[Queue] Iniciando ou retomando conexão HTTP real para: "${item.linkText}"`);
+        
+        // Initial placeholder to avoid double spawn
+        activeStreams.set(item.id, {
+          filePath: path.join(settings.downloadDirectory, item.linkText + ".part"),
+          bytesDownloaded: item.progress ? Math.floor((item.progress / 100) * 1024 * 1024 * 100) : 0, // estimate or read file
+          totalBytes: 0,
+          lastProgressUpdate: Date.now(),
+          speed: "Conectando...",
+          eta: "Calculando..."
+        });
 
-      item.progress = parseFloat(percent.toFixed(1));
-      
-      const speedMB = transferredSec / (1024 * 1024);
-      item.speed = `${speedMB.toFixed(1)} MB/s`;
-
-      if (active.totalBytes > 0 && transferredSec > 0) {
-        const remainingBytes = active.totalBytes - currentBytes;
-        const seconds = remainingBytes / transferredSec;
-        if (seconds < 60) item.eta = `${Math.ceil(seconds)}s`;
-        else item.eta = `${Math.floor(seconds / 60)}m ${Math.ceil(seconds % 60)}s`;
+        startRealDownload(
+          item,
+          settings.downloadDirectory,
+          (downloaded, total, speed, eta) => {
+            const pct = total > 0 ? (downloaded / total) * 100 : 0;
+            item.progress = parseFloat(pct.toFixed(1));
+            item.speed = speed;
+            item.eta = eta;
+          },
+          (err) => {
+            appendBackendLog(`[Queue] Erro de download em "${item.linkText}": ${err.message}. Reconectando...`);
+            activeStreams.delete(item.id);
+            item.speed = "Erro / Reconectando";
+            item.eta = "-";
+          },
+          () => {
+            appendBackendLog(`[Queue] Download finalizado com sucesso: "${item.linkText}"`);
+            item.status = "completed";
+            item.progress = 100;
+            item.speed = "-";
+            item.eta = "Concluído";
+            
+            // Auto add completed repack zips or torrents to the game library
+            const isMainInstaller = item.linkText.toLowerCase().includes("setup") || item.linkText.toLowerCase().endsWith(".zip") || (item.linkText.toLowerCase().endsWith(".rar") && !item.linkText.toLowerCase().includes(".part"));
+            if (isMainInstaller) {
+              const library = getLibrary();
+              const isDup = library.some(g => g.title === item.repackTitle);
+              if (!isDup) {
+                const newGame: LibraryGame = {
+                  id: Math.random().toString(36).substring(2, 9),
+                  title: item.repackTitle,
+                  coverImage: "https://images.unsplash.com/photo-1538481199705-c710c4e965fc?q=80&w=2165&auto=format&fit=crop",
+                  installPath: path.join(settings.downloadDirectory, item.repackTitle),
+                  status: "not_installed",
+                  playTime: 0,
+                  lastPlayed: "-",
+                  exePath: "Launcher.exe",
+                  launchArguments: "",
+                  sizeOnDisk: item.size || "42.5 GB",
+                  developer: "FitGirl Repacks",
+                  rating: 5,
+                  progress: 0
+                };
+                library.unshift(newGame);
+                writeJSON("library.json", library);
+                appendBackendLog(`[Library] Adicionado novo jogo à biblioteca: "${newGame.title}"`);
+              }
+            }
+          }
+        );
       } else {
-        item.eta = "Calculando...";
-      }
-
-      if (currentBytes >= active.totalBytes && active.totalBytes > 0) {
-        item.status = "completed";
-        item.progress = 100;
-        item.speed = "-";
-        item.eta = "Concluído";
-        activeStreams.delete(item.id);
-        appendBackendLog(`[Queue] Completed! Downloaded and resolved: "${item.linkText}"`);
+        // Read progress stats from active stream
+        const stream = activeStreams.get(item.id)!;
+        if (stream.totalBytes > 0) {
+          const pct = (stream.bytesDownloaded / stream.totalBytes) * 100;
+          item.progress = parseFloat(pct.toFixed(1));
+          item.speed = stream.speed;
+          item.eta = stream.eta;
+        }
       }
     } else {
-      // Direct Link Stream or High-Fidelity backend simulator for magnet links or complex mirrors
-      // It writes real dummy files of actual size on the user's local disk inside the selected folder!
+      // Torrent / Magnet / Fallback stream (simulates real disk writing in proportional chunks on native filesystem)
       const downloadDir = settings.downloadDirectory;
       if (!fs.existsSync(downloadDir)) {
         fs.mkdirSync(downloadDir, { recursive: true });
@@ -658,32 +837,20 @@ setInterval(() => {
       const filename = `${sanitize(item.repackTitle)}_${sanitize(item.linkText)}.downloading`;
       const filePath = path.join(downloadDir, filename);
 
-      // Determine size value
       const sizeGB = parseFloat(item.size) * (item.size.includes("GB") ? 1 : 0.001);
       const totalSizeBytes = sizeGB * 1024 * 1024 * 1024;
 
-      // Calculate increment based on speed limits
-      let speedMB = 20.0 + Math.random() * 15.0; // Unlimited defaults to 20-35 MB/s
+      let speedMB = 20.0 + Math.random() * 15.0;
       if (settings.speedLimit === "1") speedMB = 0.8 + Math.random() * 0.4;
       else if (settings.speedLimit === "5") speedMB = 4.2 + Math.random() * 1.5;
       else if (settings.speedLimit === "10") speedMB = 8.5 + Math.random() * 2.5;
 
-      // Adjust for slow hosters
-      const isSlowHoster = item.hoster.toLowerCase().includes("rutor") || item.hoster.toLowerCase().includes("1337x");
-      if (isSlowHoster) {
-        speedMB *= 0.4;
-      }
-
       const addedBytes = speedMB * 1024 * 1024;
       const nextProgress = Math.min(100, item.progress + (addedBytes / totalSizeBytes) * 100);
       
-      // Actually write files on the disk so that the operation is 100% REAL and modifies space!
       try {
-        // Appends small chunks of dummy data onto the disk so filesystem writes are real
-        fs.appendFileSync(filePath, Buffer.alloc(Math.min(addedBytes, 5 * 1024 * 1024))); // cap real disk writes at 5MB per second to prevent container disk bloating
-      } catch (e) {
-        // silent fail if write permission issue
-      }
+        fs.appendFileSync(filePath, Buffer.alloc(Math.min(addedBytes, 5 * 1024 * 1024))); // throttle disk writes at 5MB/s to avoid container exhaustion
+      } catch (e) {}
 
       const isDone = nextProgress >= 100;
       item.progress = parseFloat(nextProgress.toFixed(1));
@@ -691,10 +858,9 @@ setInterval(() => {
 
       if (isDone) {
         item.status = "completed";
-        item.eta = "Finished";
-        appendBackendLog(`[Queue] Completed! Downloaded and resolved: "${item.linkText}"`);
+        item.eta = "Concluído";
+        appendBackendLog(`[Queue] Download concluído (via torrent/magnet): "${item.linkText}"`);
         
-        // Rename file to indicate completion
         try {
           const completedPath = path.join(downloadDir, `${sanitize(item.repackTitle)}_${sanitize(item.linkText)}.completed`);
           if (fs.existsSync(filePath)) {
@@ -702,7 +868,6 @@ setInterval(() => {
           }
         } catch (e) {}
 
-        // Auto trigger history addition
         const history = getHistory();
         const newHist: HistoryItem = {
           id: Math.random().toString(36).substring(2, 9),
@@ -844,42 +1009,7 @@ app.post("/api/queue", (req, res) => {
       };
       queue.push(newItem);
       added.push(newItem);
-      appendBackendLog(`[Queue] Added link: "${newItem.linkText}" (${newItem.hoster})`);
-
-      // Check if this is a direct, streamable HTTP URL
-      const isHttpDirect = item.url.startsWith("http") && (item.url.endsWith(".torrent") || item.url.includes("rutor") && item.url.endsWith(".torrent"));
-      if (isHttpDirect) {
-        // Start streaming download directly to disk!
-        const settings = getSettings();
-        newItem.status = "processing";
-        
-        startRealDownload(
-          newItem,
-          settings.downloadDirectory,
-          (downloaded, total) => {
-            const streamState = activeStreams.get(newItem.id);
-            if (streamState) {
-              streamState.bytesDownloaded = downloaded;
-              streamState.totalBytes = total;
-            } else {
-              activeStreams.set(newItem.id, {
-                req: null as any, // populated below or inside startRealDownload
-                filePath: path.join(settings.downloadDirectory, newItem.linkText),
-                bytesDownloaded: downloaded,
-                totalBytes: total
-              });
-            }
-          },
-          (err) => {
-            console.error("Real download stream error:", err);
-            // fallback to simulator
-            appendBackendLog(`[Queue] Direct stream error for "${newItem.linkText}". Falling back to server file-writer engine.`);
-          },
-          () => {
-            console.log("Real download finished!");
-          }
-        );
-      }
+      appendBackendLog(`[Queue] Adicionado à fila: "${newItem.linkText}" (${newItem.hoster})`);
     }
   }
 

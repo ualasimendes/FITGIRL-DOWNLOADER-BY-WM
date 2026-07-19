@@ -88,10 +88,12 @@
     "portable": {
       "artifactName": "FitGirl-Desktop-Extractor-Portable-${version}.${ext}"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "ualasimendes",
-      "repo": "FITGIRL-DOWNLOADER-BY-WM"
-    }
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ualasimendes",
+        "repo": "FITGIRL-DOWNLOADER-BY-WM"
+      }
+    ]
   }
 }
