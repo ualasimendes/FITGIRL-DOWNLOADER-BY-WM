@@ -15,7 +15,8 @@
     "clean": "rm -rf dist dist-electron dist-desktop",
     "lint": "tsc --noEmit",
     "package": "electron-builder --win",
-    "publish": "electron-builder --win --publish always"
+    "publish": "electron-builder --win --publish always",
+    "release": "electron-builder --win --publish always"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
