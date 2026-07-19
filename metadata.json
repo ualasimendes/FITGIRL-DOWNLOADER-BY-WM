@@ -1,0 +1,6 @@
+{
+  "name": "FITGIRL EXTRACTOR BY WM",
+  "description": "A desktop-style utility to search FitGirl repacks and extract, group, and copy direct download and filehost links for easy download management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
