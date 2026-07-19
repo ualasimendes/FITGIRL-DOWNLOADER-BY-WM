@@ -61,6 +61,17 @@ import {
 } from "./types";
 import { translations } from "./translations";
 
+declare global {
+  interface Window {
+    electronAPI?: {
+      getAppVersion: () => Promise<string>;
+      checkForUpdates: () => Promise<any>;
+      onUpdateAvailable: (callback: (info: any) => void) => () => void;
+      onDownloadProgress: (callback: (percent: number) => void) => () => void;
+    };
+  }
+}
+
 export default function App() {
   // Language Selection state
   const [lang, setLang] = useState<"en" | "es" | "pt">(() => {
@@ -118,171 +129,109 @@ export default function App() {
   const [linksSearchQuery, setLinksSearchQuery] = useState("");
   const [showFastOnly, setShowFastOnly] = useState(false);
 
-  // Load and save functions for local persistence (local simulated database)
-  const [queue, setQueue] = useState<QueueItem[]>(() => {
-    try {
-      const stored = localStorage.getItem("fg_queue");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
+  // Core State Managers synchronized with backend
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [settings, setSettings] = useState<AppSettings>({
+    simultaneousDownloads: 1,
+    speedLimit: "unlimited",
+    autoStartQueue: true,
+    notifyOnComplete: true,
+    defaultCategory: "all",
+    downloadDirectory: "C:\\Downloads\\FitGirlRepacks"
   });
-
-  const [favorites, setFavorites] = useState<FavoriteItem[]>(() => {
-    try {
-      const stored = localStorage.getItem("fg_favorites");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [history, setHistory] = useState<HistoryItem[]>(() => {
-    try {
-      const stored = localStorage.getItem("fg_history");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    try {
-      const stored = localStorage.getItem("fg_settings");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (!parsed.downloadDirectory) {
-          parsed.downloadDirectory = "C:\\Downloads\\FitGirlRepacks";
-        }
-        return parsed;
-      }
-    } catch {}
-    return {
-      simultaneousDownloads: 1,
-      speedLimit: "unlimited",
-      autoStartQueue: true,
-      notifyOnComplete: true,
-      defaultCategory: "all",
-      downloadDirectory: "C:\\Downloads\\FitGirlRepacks"
-    };
-  });
-
-  // Keep state synchronized with localStorage
-  useEffect(() => {
-    localStorage.setItem("fg_queue", JSON.stringify(queue));
-  }, [queue]);
-
-  useEffect(() => {
-    localStorage.setItem("fg_favorites", JSON.stringify(favorites));
-  }, [favorites]);
-
-  useEffect(() => {
-    localStorage.setItem("fg_history", JSON.stringify(history));
-  }, [history]);
-
-  useEffect(() => {
-    localStorage.setItem("fg_settings", JSON.stringify(settings));
-  }, [settings]);
-
-  // Game Library States & Simulation (Steam-inspired Layout)
-  const [libraryGames, setLibraryGames] = useState<LibraryGame[]>(() => {
-    try {
-      const stored = localStorage.getItem("fg_library");
-      if (stored) return JSON.parse(stored);
-    } catch {}
-    return [
-      {
-        id: "elden-ring",
-        title: "Elden Ring (v1.12.3 + Shadow of the Erdtree)",
-        coverImage: "https://shared.fastly.steamstatic.com/store_images/steam/apps/1245620/header.jpg",
-        installPath: "C:\\Games\\Elden Ring",
-        status: "ready",
-        playTime: 125,
-        lastPlayed: "18/07/2026",
-        exePath: "Game\\eldenring.exe",
-        launchArguments: "-windowed -novid",
-        sizeOnDisk: "48.3 GB",
-        developer: "FromSoftware",
-        rating: 9.8
-      },
-      {
-        id: "cyberpunk-2077",
-        title: "Cyberpunk 2077 (v2.12 + Phantom Liberty)",
-        coverImage: "https://shared.fastly.steamstatic.com/store_images/steam/apps/1091500/header.jpg",
-        installPath: "D:\\Games\\Cyberpunk 2077",
-        status: "ready",
-        playTime: 245,
-        lastPlayed: "15/07/2026",
-        exePath: "bin\\x64\\Cyberpunk2077.exe",
-        launchArguments: "-skipStartScreen",
-        sizeOnDisk: "76.1 GB",
-        developer: "CD PROJEKT RED",
-        rating: 9.2
-      }
-    ];
-  });
-
+  const [libraryGames, setLibraryGames] = useState<LibraryGame[]>([]);
   const [selectedLibraryGameId, setSelectedLibraryGameId] = useState<string | null>("elden-ring");
 
+  // Electron auto-updater states
+  const [appVersion, setAppVersion] = useState("v2.4.0 Desktop Edition");
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
+
   useEffect(() => {
-    localStorage.setItem("fg_library", JSON.stringify(libraryGames));
-  }, [libraryGames]);
+    if (window.electronAPI) {
+      window.electronAPI.getAppVersion().then(v => {
+        setAppVersion(`v${v} Desktop Edition`);
+      }).catch(err => console.error(err));
 
-  // Background playtime simulation timer
+      const unsubAvailable = window.electronAPI.onUpdateAvailable((info) => {
+        setUpdateAvailable(true);
+        addLog(`[AutoUpdater] New update available: v${info.version}. Downloading in background...`);
+      });
+
+      const unsubProgress = window.electronAPI.onDownloadProgress((percent) => {
+        setUpdateProgress(percent);
+      });
+
+      return () => {
+        if (unsubAvailable) unsubAvailable();
+        if (unsubProgress) unsubProgress();
+      };
+    }
+  }, []);
+
+  // Load backend state once on component mount
   useEffect(() => {
-    const hasPlaying = libraryGames.some(g => g.status === "playing");
-    if (!hasPlaying) return;
-
-    const interval = setInterval(() => {
-      setLibraryGames(prev =>
-        prev.map(g => {
-          if (g.status === "playing") {
-            return {
-              ...g,
-              playTime: (g.playTime || 0) + 1,
-            };
-          }
-          return g;
-        })
-      );
-    }, 10000); // 10 seconds of simulation increments play time by 1 minute
-
-    return () => clearInterval(interval);
-  }, [libraryGames]);
-
-  // Background download / installation progress simulation timer
-  useEffect(() => {
-    const hasInstalling = libraryGames.some(g => g.status === "installing");
-    if (!hasInstalling) return;
-
-    const interval = setInterval(() => {
-      setLibraryGames(prev =>
-        prev.map(g => {
-          if (g.status === "installing") {
-            const currentProgress = g.progress || 0;
-            const nextProgress = currentProgress + 10;
-            if (nextProgress >= 100) {
-              addLog(`[Simulator] Download completed for: "${g.title}"`);
-              return {
-                ...g,
-                status: "ready",
-                progress: 100
-              };
+    const loadState = async () => {
+      try {
+        const res = await fetch("/api/state");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.settings) setSettings(data.settings);
+          if (data.libraryGames) {
+            setLibraryGames(data.libraryGames);
+            if (data.libraryGames.length > 0 && !selectedLibraryGameId) {
+              setSelectedLibraryGameId(data.libraryGames[0].id);
             }
-            return {
-              ...g,
-              progress: nextProgress
-            };
           }
-          return g;
-        })
-      );
-    }, 1000); // Increments progress by 10% every second
+          if (data.queue) setQueue(data.queue);
+          if (data.favorites) setFavorites(data.favorites);
+          if (data.history) setHistory(data.history);
+          if (data.systemLogs) setSystemLogs(data.systemLogs);
+        }
+      } catch (err) {
+        console.error("Failed to load backend state on mount:", err);
+      }
+    };
+    loadState();
+  }, []);
+
+  // Poll backend state every 1.5s for real download status, install progress, active play tracking and logs
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/state");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.queue) setQueue(data.queue);
+          if (data.libraryGames) setLibraryGames(data.libraryGames);
+          if (data.systemLogs) setSystemLogs(data.systemLogs);
+          if (data.favorites) setFavorites(data.favorites);
+          if (data.history) setHistory(data.history);
+        }
+      } catch (err) {
+        console.error("Polling backend state error:", err);
+      }
+    }, 1500);
 
     return () => clearInterval(interval);
-  }, [libraryGames]);
+  }, []);
 
-  const addToLibrary = (repack: { title: string; url: string; coverImage?: string }) => {
+  const updateSettings = async (newSettings: AppSettings) => {
+    setSettings(newSettings);
+    try {
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: newSettings })
+      });
+    } catch (err) {
+      console.error("Failed to sync settings with backend:", err);
+    }
+  };
+
+  const addToLibrary = async (repack: { title: string; url: string; coverImage?: string }) => {
     const isAlreadyInLib = libraryGames.some(g => g.title === repack.title);
     if (isAlreadyInLib) {
       setSuccessMsg("Game is already in your Library!");
@@ -304,18 +253,45 @@ export default function App() {
       rating: 4,
       progress: 0
     };
-    setLibraryGames(prev => [newGame, ...prev]);
-    setSelectedLibraryGameId(newGame.id);
-    addLog(`[Library] Added "${repack.title}" to Library.`);
-    setSuccessMsg("Added to Library!");
+
+    try {
+      const res = await fetch("/api/library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ game: newGame })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.library) setLibraryGames(data.library);
+        setSelectedLibraryGameId(newGame.id);
+        addLog(`[Library] Added "${repack.title}" to Library.`);
+        setSuccessMsg("Added to Library!");
+      } else {
+        const errData = await res.json();
+        setErrorMsg(errData.error || "Failed to add game to Library.");
+      }
+    } catch (err) {
+      console.error("Error adding to library:", err);
+      setErrorMsg("Error communicating with backend.");
+    }
   };
 
-  const removeFromLibrary = (id: string) => {
-    setLibraryGames(prev => prev.filter(g => g.id !== id));
-    addLog(`[Library] Removed game ID ${id} from Library.`);
-    setSuccessMsg("Removed from Library.");
-    if (selectedLibraryGameId === id) {
-      setSelectedLibraryGameId(null);
+  const removeFromLibrary = async (id: string) => {
+    try {
+      const res = await fetch(`/api/library/${id}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.library) setLibraryGames(data.library);
+        addLog(`[Library] Removed game ID ${id} from Library.`);
+        setSuccessMsg("Removed from Library.");
+        if (selectedLibraryGameId === id) {
+          setSelectedLibraryGameId(null);
+        }
+      }
+    } catch (err) {
+      console.error("Error removing from library:", err);
     }
   };
 
@@ -361,13 +337,20 @@ export default function App() {
   });
 
   // Log message helper
-  const addLog = (msg: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setSystemLogs(prev => [`[${timestamp}] ${msg}`, ...prev.slice(0, 49)]);
+  const addLog = async (msg: string) => {
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg })
+      });
+    } catch (err) {
+      console.error("Log error:", err);
+    }
   };
 
   // Helper to add individual link to queue
-  const addToQueue = (repackTitle: string, link: ExtractedLink) => {
+  const addToQueue = async (repackTitle: string, link: ExtractedLink) => {
     let sizeStr = "2.4 GB";
     const titleLower = link.text.toLowerCase();
     if (titleLower.includes("part")) {
@@ -398,13 +381,23 @@ export default function App() {
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    setQueue(prev => [...prev, newItem]);
-    addLog(`[Queue] Added item: "${newItem.linkText}" (${newItem.hoster})`);
-    setSuccessMsg(`Added to download queue!`);
+    try {
+      const res = await fetch("/api/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [newItem] })
+      });
+      if (res.ok) {
+        addLog(`[Queue] Added item: "${newItem.linkText}" (${newItem.hoster})`);
+        setSuccessMsg(`Added to download queue!`);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // Helper to add bulk links to queue
-  const addFilteredLinksToQueue = (repackTitle: string, links: ExtractedLink[]) => {
+  const addFilteredLinksToQueue = async (repackTitle: string, links: ExtractedLink[]) => {
     if (links.length === 0) {
       setErrorMsg("No links selected/available to add.");
       return;
@@ -435,18 +428,38 @@ export default function App() {
       };
     });
 
-    setQueue(prev => [...prev, ...newItems]);
-    addLog(`[Queue] Bulk added ${newItems.length} links from "${repackTitle}".`);
-    setSuccessMsg(`Added ${newItems.length} items to queue!`);
+    try {
+      const res = await fetch("/api/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: newItems })
+      });
+      if (res.ok) {
+        addLog(`[Queue] Bulk added ${newItems.length} links from "${repackTitle}".`);
+        setSuccessMsg(`Added ${newItems.length} items to queue!`);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // Favorites logic
-  const toggleFavorite = (repack: RepackDetails | RepackGame) => {
+  const toggleFavorite = async (repack: RepackDetails | RepackGame) => {
     const isFav = favorites.some(f => f.url === repack.url);
     if (isFav) {
-      setFavorites(prev => prev.filter(f => f.url !== repack.url));
-      addLog(`Removed from Favorites: "${repack.title}"`);
-      setSuccessMsg("Removed from Favorites.");
+      try {
+        const res = await fetch("/api/favorites", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "remove", item: repack.url })
+        });
+        if (res.ok) {
+          addLog(`Removed from Favorites: "${repack.title}"`);
+          setSuccessMsg("Removed from Favorites.");
+        }
+      } catch (err) {
+        console.error(err);
+      }
     } else {
       const newFav: FavoriteItem = {
         id: Math.random().toString(36).substring(2, 9),
@@ -455,9 +468,19 @@ export default function App() {
         coverImage: repack.coverImage || "",
         addedAt: new Date().toLocaleDateString()
       };
-      setFavorites(prev => [newFav, ...prev]);
-      addLog(`Added to Favorites: "${repack.title}"`);
-      setSuccessMsg("Saved to Favorites!");
+      try {
+        const res = await fetch("/api/favorites", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "add", item: newFav })
+        });
+        if (res.ok) {
+          addLog(`Added to Favorites: "${repack.title}"`);
+          setSuccessMsg("Saved to Favorites!");
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -466,48 +489,75 @@ export default function App() {
   };
 
   // History logic
-  const clearHistory = () => {
-    setHistory([]);
-    addLog("System history database cleared.");
-    setSuccessMsg("History cleared.");
+  const clearHistory = async () => {
+    try {
+      const res = await fetch("/api/history", { method: "DELETE" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.history) setHistory(data.history);
+        addLog("System history database cleared.");
+        setSuccessMsg("History cleared.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const removeFromHistory = (id: string) => {
-    setHistory(prev => prev.filter(item => item.id !== id));
+  const removeFromHistory = async (id: string) => {
+    try {
+      const res = await fetch(`/api/history/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.history) setHistory(data.history);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // Queue individual and bulk action helpers
-  const pauseQueueItem = (id: string) => {
-    setQueue(prev => prev.map(q => {
-      if (q.id === id) {
-        addLog(`[Queue] Paused task: "${q.linkText}"`);
-        return { ...q, status: "paused", speed: "-", eta: "-" };
+  const pauseQueueItem = async (id: string) => {
+    try {
+      const res = await fetch(`/api/queue/${id}/pause`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.queue) setQueue(data.queue);
+        addLog(`[Queue] Paused task.`);
       }
-      return q;
-    }));
-  };
-
-  const resumeQueueItem = (id: string) => {
-    setQueue(prev => prev.map(q => {
-      if (q.id === id) {
-        addLog(`[Queue] Resumed task: "${q.linkText}"`);
-        return { ...q, status: "waiting" };
-      }
-      return q;
-    }));
-  };
-
-  const cancelQueueItem = (id: string) => {
-    const item = queue.find(q => q.id === id);
-    if (item) {
-      addLog(`[Queue] Removed task: "${item.linkText}"`);
+    } catch (err) {
+      console.error(err);
     }
-    setQueue(prev => prev.filter(q => q.id !== id));
-    setSelectedQueueItems(prev => {
-      const copy = new Set(prev);
-      copy.delete(id);
-      return copy;
-    });
+  };
+
+  const resumeQueueItem = async (id: string) => {
+    try {
+      const res = await fetch(`/api/queue/${id}/resume`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.queue) setQueue(data.queue);
+        addLog(`[Queue] Resumed task.`);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const cancelQueueItem = async (id: string) => {
+    try {
+      const res = await fetch(`/api/queue/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.queue) setQueue(data.queue);
+        setSelectedQueueItems(prev => {
+          const copy = new Set(prev);
+          copy.delete(id);
+          return copy;
+        });
+        addLog(`[Queue] Removed task.`);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const moveQueueItem = (index: number, direction: "up" | "down") => {
@@ -524,39 +574,46 @@ export default function App() {
     addLog(`[Queue] Reordered queue. Moved "${temp.linkText}" ${direction}.`);
   };
 
-  const pauseAllQueue = () => {
-    setQueue(prev => prev.map(q => {
-      if (q.status === "processing" || q.status === "waiting") {
-        return { ...q, status: "paused", speed: "-", eta: "-" };
+  const pauseAllQueue = async () => {
+    try {
+      for (const item of queue) {
+        if (item.status === "processing" || item.status === "waiting") {
+          await fetch(`/api/queue/${item.id}/pause`, { method: "POST" });
+        }
       }
-      return q;
-    }));
-    addLog("[Queue] Paused all tasks in the manager queue.");
-    setSuccessMsg("All tasks paused.");
+      addLog("[Queue] Paused all tasks in the manager queue.");
+      setSuccessMsg("All tasks paused.");
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const resumeAllQueue = () => {
-    setQueue(prev => prev.map(q => {
-      if (q.status === "paused") {
-        return { ...q, status: "waiting" };
+  const resumeAllQueue = async () => {
+    try {
+      for (const item of queue) {
+        if (item.status === "paused") {
+          await fetch(`/api/queue/${item.id}/resume`, { method: "POST" });
+        }
       }
-      return q;
-    }));
-    addLog("[Queue] Resumed all paused tasks in the queue.");
-    setSuccessMsg("All tasks resumed.");
+      addLog("[Queue] Resumed all paused tasks in the queue.");
+      setSuccessMsg("All tasks resumed.");
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const clearCompletedQueue = () => {
-    const beforeCount = queue.length;
-    setQueue(prev => {
-      const filtered = prev.filter(q => q.status !== "completed");
-      const cleared = beforeCount - filtered.length;
-      setTimeout(() => {
-        addLog(`[Queue] Cleared ${cleared} completed tasks from the queue.`);
-        setSuccessMsg(`Cleared ${cleared} completed tasks.`);
-      }, 0);
-      return filtered;
-    });
+  const clearCompletedQueue = async () => {
+    try {
+      const res = await fetch("/api/queue/clear-completed", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.queue) setQueue(data.queue);
+        addLog(`[Queue] Cleared completed tasks from the queue.`);
+        setSuccessMsg(`Cleared completed tasks.`);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // Bulk selection and actions
@@ -656,125 +713,6 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [successMsg]);
-
-  // Background queue processing engine (Simulated high-fidelity download manager)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setQueue(prevQueue => {
-        if (prevQueue.length === 0) return prevQueue;
-
-        // Count how many are currently downloading
-        const activeCount = prevQueue.filter(item => item.status === "processing").length;
-        
-        let updatedQueue = [...prevQueue];
-        let slotsAvailable = settings.simultaneousDownloads - activeCount;
-
-        // 1. Auto-start waiting tasks if we have available slots
-        if (slotsAvailable > 0 && settings.autoStartQueue) {
-          for (let i = 0; i < updatedQueue.length; i++) {
-            if (updatedQueue[i].status === "waiting" && slotsAvailable > 0) {
-              updatedQueue[i] = {
-                ...updatedQueue[i],
-                status: "processing",
-                speed: "Connecting..."
-              };
-              slotsAvailable--;
-              addLog(`[Queue] Started processing: "${updatedQueue[i].linkText}" (${updatedQueue[i].hoster})`);
-            }
-          }
-        }
-
-        // 2. Increment progress on all active downloads
-        let queueChanged = false;
-        updatedQueue = updatedQueue.map(item => {
-          if (item.status !== "processing") return item;
-
-          queueChanged = true;
-          
-          // Determine speed and increment rate based on speed limit setting
-          let speedVal = 0; // in MB/s
-          let increment = 0;
-
-          if (settings.speedLimit === "1") {
-            speedVal = 0.8 + Math.random() * 0.4; // ~1 MB/s
-            increment = 1 + Math.random() * 1.5;
-          } else if (settings.speedLimit === "5") {
-            speedVal = 4.2 + Math.random() * 1.5; // ~5 MB/s
-            increment = 3 + Math.random() * 3;
-          } else if (settings.speedLimit === "10") {
-            speedVal = 8.5 + Math.random() * 2.5; // ~10 MB/s
-            increment = 6 + Math.random() * 5;
-          } else {
-            // Unlimited
-            speedVal = 20.0 + Math.random() * 25.0; // 20 - 45 MB/s
-            increment = 12 + Math.random() * 14;
-          }
-
-          // Adjust rate if the hoster is slow or fast
-          const isSlowHoster = item.hoster.toLowerCase().includes("rutor") || item.hoster.toLowerCase().includes("1337x");
-          if (isSlowHoster) {
-            speedVal *= 0.4;
-            increment *= 0.4;
-          }
-
-          const nextProgress = Math.min(100, item.progress + increment);
-          const isDone = nextProgress >= 100;
-
-          // Parse size
-          const sizeMB = parseFloat(item.size) * (item.size.includes("GB") ? 1024 : 1);
-          const remMB = sizeMB * (1 - nextProgress / 100);
-          
-          // Calculate ETA
-          let etaStr = "Calculating...";
-          if (speedVal > 0 && !isDone) {
-            const seconds = remMB / speedVal;
-            if (seconds < 60) {
-              etaStr = `${Math.ceil(seconds)}s`;
-            } else {
-              const mins = Math.floor(seconds / 60);
-              const secs = Math.ceil(seconds % 60);
-              etaStr = `${mins}m ${secs}s`;
-            }
-          } else if (isDone) {
-            etaStr = "Finished";
-          }
-
-          const speedStr = isDone ? "-" : `${speedVal.toFixed(1)} MB/s`;
-
-          if (isDone) {
-            // Log completion and trigger notification
-            setTimeout(() => {
-              addLog(`[Queue] Completed! Downloaded and resolved: "${item.linkText}"`);
-              
-              // Add to local history
-              setHistory(prevHist => {
-                const newHistItem: HistoryItem = {
-                  id: Math.random().toString(36).substring(2, 9),
-                  queryOrUrl: `${item.repackTitle} - ${item.linkText} (${item.hoster})`,
-                  type: "url",
-                  timestamp: new Date().toLocaleString(),
-                  resultsCount: 1
-                };
-                return [newHistItem, ...prevHist.slice(0, 49)];
-              });
-            }, 0);
-          }
-
-          return {
-            ...item,
-            progress: parseFloat(nextProgress.toFixed(1)),
-            status: isDone ? "completed" : "processing",
-            speed: speedStr,
-            eta: etaStr
-          };
-        });
-
-        return queueChanged || slotsAvailable !== settings.simultaneousDownloads ? updatedQueue : prevQueue;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [settings]);
 
   // Search FitGirl repacks
   const handleSearch = async (page = 1) => {
@@ -1212,7 +1150,13 @@ export default function App() {
             <span className="font-semibold text-sky-400 bg-sky-950/40 border border-sky-900/40 px-2 py-0.5 rounded text-xs">FG</span>
             <span className="font-mono text-white font-bold tracking-tight">FITGIRL EXTRACTOR BY WM</span>
             <span className="text-slate-600 font-normal">|</span>
-            <span className="text-xs text-slate-400 font-mono">v2.4.0 Desktop Edition</span>
+            <span className="text-xs text-slate-400 font-mono">{appVersion}</span>
+            {updateAvailable && (
+              <span className="text-[10px] bg-indigo-600/80 text-indigo-100 border border-indigo-500/30 px-2 py-0.5 rounded font-mono animate-pulse flex items-center gap-1 ml-1">
+                <RefreshCw size={10} className="animate-spin text-indigo-300" />
+                Update: {updateProgress.toFixed(0)}%
+              </span>
+            )}
           </div>
 
           {/* Connection Status & Language Indicator */}
@@ -2547,7 +2491,7 @@ export default function App() {
                                   value={settings.speedLimit}
                                   onChange={(e) => {
                                     const limit = e.target.value;
-                                    setSettings(prev => ({ ...prev, speedLimit: limit }));
+                                    updateSettings({ ...settings, speedLimit: limit });
                                     addLog(`[Settings] Changed speed limit to ${limit === "unlimited" ? "Unlimited" : limit + " MB/s"}`);
                                   }}
                                   className="bg-slate-900 border border-slate-700 text-slate-200 px-1.5 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-sky-500 font-semibold text-[10px]"
@@ -2567,7 +2511,7 @@ export default function App() {
                                   value={settings.simultaneousDownloads}
                                   onChange={(e) => {
                                     const num = parseInt(e.target.value);
-                                    setSettings(prev => ({ ...prev, simultaneousDownloads: num }));
+                                    updateSettings({ ...settings, simultaneousDownloads: num });
                                     addLog(`[Settings] Changed simultaneous downloads to ${num}`);
                                   }}
                                   className="bg-slate-900 border border-slate-700 text-slate-200 px-1.5 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-sky-500 font-semibold text-[10px]"
@@ -2930,7 +2874,7 @@ export default function App() {
                                 value={settings.downloadDirectory || "C:\\Downloads\\FitGirlRepacks"}
                                 onChange={(e) => {
                                   const path = e.target.value;
-                                  setSettings(prev => ({ ...prev, downloadDirectory: path }));
+                                  updateSettings({ ...settings, downloadDirectory: path });
                                 }}
                                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-indigo-300 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                 placeholder="e.g., C:\Downloads\FitGirlRepacks"
@@ -2946,7 +2890,7 @@ export default function App() {
                                   "/home/user/Downloads/FitGirl"
                                 ];
                                 const randomPath = systemPaths[Math.floor(Math.random() * systemPaths.length)];
-                                setSettings(prev => ({ ...prev, downloadDirectory: randomPath }));
+                                updateSettings({ ...settings, downloadDirectory: randomPath });
                                 addLog(`[Settings] Standard save directory path changed: ${randomPath}`);
                                 setSuccessMsg("Folder updated!");
                               }}
@@ -3149,12 +3093,18 @@ export default function App() {
                                 <div className="flex items-center gap-4">
                                   {activeGame.status === "not_installed" ? (
                                     <button
-                                      onClick={() => {
-                                        setLibraryGames(prev =>
-                                          prev.map(g => (g.id === activeGame.id ? { ...g, status: "installing", progress: 0 } : g))
-                                        );
-                                        addLog(`[Simulator] Started download for: "${activeGame.title}"`);
-                                        setSuccessMsg("Download iniciado!");
+                                      onClick={async () => {
+                                        try {
+                                          const res = await fetch(`/api/library/${activeGame.id}/install`, { method: "POST" });
+                                          if (res.ok) {
+                                            const data = await res.json();
+                                            if (data.library) setLibraryGames(data.library);
+                                            addLog(`[Library] Started installation for: "${activeGame.title}"`);
+                                            setSuccessMsg("Download iniciado!");
+                                          }
+                                        } catch (err) {
+                                          console.error(err);
+                                        }
                                       }}
                                       className="px-8 py-3.5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black rounded-lg text-sm tracking-widest flex items-center gap-2 cursor-pointer transition-all shadow-lg shadow-indigo-500/20 hover:scale-[1.02]"
                                     >
@@ -3169,12 +3119,18 @@ export default function App() {
                                         <span className="text-slate-500 text-[10px]">(48.5 MB/s)</span>
                                       </div>
                                       <button
-                                        onClick={() => {
-                                          setLibraryGames(prev =>
-                                            prev.map(g => (g.id === activeGame.id ? { ...g, status: "not_installed", progress: 0 } : g))
-                                          );
-                                          addLog(`[Simulator] Cancelled download for: "${activeGame.title}"`);
-                                          setSuccessMsg("Download cancelado.");
+                                        onClick={async () => {
+                                          try {
+                                            const res = await fetch(`/api/library/${activeGame.id}/stop`, { method: "POST" });
+                                            if (res.ok) {
+                                              const data = await res.json();
+                                              if (data.library) setLibraryGames(data.library);
+                                              addLog(`[Library] Cancelled installation for: "${activeGame.title}"`);
+                                              setSuccessMsg("Download cancelado.");
+                                            }
+                                          } catch (err) {
+                                            console.error(err);
+                                          }
                                         }}
                                         className="px-3.5 py-3 bg-slate-900 hover:bg-slate-850 border border-slate-700 text-slate-400 hover:text-slate-200 rounded-lg text-xs transition-all cursor-pointer font-bold font-mono"
                                         title="Cancelar Download"
@@ -3184,12 +3140,18 @@ export default function App() {
                                     </div>
                                   ) : isPlaying ? (
                                     <button
-                                      onClick={() => {
-                                        setLibraryGames(prev =>
-                                          prev.map(g => (g.id === activeGame.id ? { ...g, status: "ready" } : g))
-                                        );
-                                        addLog(`[Simulator] Stopped game: "${activeGame.title}"`);
-                                        setSuccessMsg("Jogo finalizado!");
+                                      onClick={async () => {
+                                        try {
+                                          const res = await fetch(`/api/library/${activeGame.id}/stop`, { method: "POST" });
+                                          if (res.ok) {
+                                            const data = await res.json();
+                                            if (data.library) setLibraryGames(data.library);
+                                            addLog(`[Launcher] Stopped game: "${activeGame.title}"`);
+                                            setSuccessMsg("Jogo finalizado!");
+                                          }
+                                        } catch (err) {
+                                          console.error(err);
+                                        }
                                       }}
                                       className="px-8 py-3.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black rounded-lg text-sm tracking-widest flex items-center gap-2 cursor-pointer transition-all shadow-lg shadow-red-500/10 hover:scale-[1.02]"
                                     >
@@ -3198,12 +3160,18 @@ export default function App() {
                                     </button>
                                   ) : (
                                     <button
-                                      onClick={() => {
-                                        setLibraryGames(prev =>
-                                          prev.map(g => (g.id === activeGame.id ? { ...g, status: "playing", lastPlayed: new Date().toLocaleDateString() } : g))
-                                        );
-                                        addLog(`[Simulator] Started game: "${activeGame.title}"`);
-                                        setSuccessMsg("Jogo iniciado com sucesso!");
+                                      onClick={async () => {
+                                        try {
+                                          const res = await fetch(`/api/library/${activeGame.id}/launch`, { method: "POST" });
+                                          if (res.ok) {
+                                            const data = await res.json();
+                                            if (data.library) setLibraryGames(data.library);
+                                            addLog(`[Launcher] Started game: "${activeGame.title}"`);
+                                            setSuccessMsg("Jogo iniciado com sucesso!");
+                                          }
+                                        } catch (err) {
+                                          console.error(err);
+                                        }
                                       }}
                                       className="px-10 py-3.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 text-slate-950 font-black rounded-lg text-sm tracking-widest flex items-center gap-2 cursor-pointer transition-all shadow-lg shadow-green-500/15 hover:scale-[1.02]"
                                     >

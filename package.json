@@ -1,14 +1,21 @@
 {
-  "name": "react-example",
+  "name": "fitgirl-downloader-wm",
+  "productName": "FitGirl Desktop Extractor",
+  "version": "1.0.0",
+  "description": "FitGirl Downloader by WM - O gerenciador e extrator definitivo para repacks da FitGirl.",
+  "author": "WM <lacee.mds@gmail.com>",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "dev": "concurrently -n \"server,electron\" -c \"cyan,magenta\" \"tsx server.ts\" \"electron .\"",
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-electron/main.js && esbuild electron/preload.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist-electron/preload.js",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && npm run build:electron",
     "start": "node dist/server.cjs",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "clean": "rm -rf dist dist-electron dist-desktop",
+    "lint": "tsc --noEmit",
+    "package": "electron-builder --win",
+    "publish": "electron-builder --win --publish always"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -21,13 +28,13 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "vite": "^6.2.3"
+    "react-dom": "^19.0.1"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^10.0.3",
     "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
@@ -35,5 +42,56 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
+  },
+  "build": {
+    "appId": "com.fitgirl.extractor",
+    "productName": "FitGirl Desktop Extractor",
+    "copyright": "Copyright © 2026 WM",
+    "directories": {
+      "output": "dist-desktop",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "FitGirl Desktop Extractor",
+      "runAfterFinish": true,
+      "perMachine": true,
+      "uninstallDisplayName": "FitGirl Desktop Extractor (Remover)",
+      "artifactName": "FitGirl-Desktop-Extractor-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "FitGirl-Desktop-Extractor-Portable-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "ualasimendes",
+      "repo": "FITGIRL-DOWNLOADER-BY-WM"
+    }
   }
 }
