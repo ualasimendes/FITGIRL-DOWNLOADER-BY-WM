@@ -25,6 +25,9 @@ nsis:
   shortcutName: "FitGirl Desktop Extractor"
   runAfterFinish: true
   perMachine: true
+  artifactName: "FitGirl-Desktop-Extractor-Setup-${version}.${ext}"
+portable:
+  artifactName: "FitGirl-Desktop-Extractor-Portable-${version}.${ext}"
 publish:
   provider: github
   owner: ualasimendes
