@@ -2,7 +2,8 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
-import { autoUpdater } from "electron-updater";
+import pkg from "electron-updater";
+var { autoUpdater } = pkg;
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = path.dirname(__filename);
 var mainWindow = null;
