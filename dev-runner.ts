@@ -8,6 +8,11 @@ console.log("[DevRunner] =====================================================\n
 const serverProcess = spawn("npx", ["tsx", "server.ts"], {
   stdio: "inherit",
   shell: true,
+  env: {
+    ...process.env,
+    VITE_DEV_SERVER: "true",
+    NODE_ENV: "development",
+  },
 });
 
 // 2. Check if we should start Electron
