@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import pkg from "electron-updater";
 import net from "net";
 const { autoUpdater } = pkg;
@@ -11,6 +11,9 @@ const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = !app.isPackaged || process.env.NODE_ENV === "development";
+if (!isDev) {
+  process.env.NODE_ENV = "production";
+}
 let activePort = 3000;
 
 // Helper to find a free port starting from startPort
@@ -62,7 +65,8 @@ async function startExpressServer() {
       // In production, the compiled server is bundled at dist/server.cjs
       // We dynamically load it to start the Express server
       const serverPath = path.join(app.getAppPath(), "dist", "server.cjs");
-      await import(serverPath);
+      const serverUrl = pathToFileURL(serverPath).href;
+      await import(serverUrl);
       console.log("Production Express server started successfully.");
     } catch (error) {
       console.error("Failed to start production Express server:", error);

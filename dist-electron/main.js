@@ -1,7 +1,7 @@
 // electron/main.ts
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import pkg from "electron-updater";
 import net from "net";
 var { autoUpdater } = pkg;
@@ -9,6 +9,9 @@ var __filename = fileURLToPath(import.meta.url);
 var __dirname = path.dirname(__filename);
 var mainWindow = null;
 var isDev = !app.isPackaged || process.env.NODE_ENV === "development";
+if (!isDev) {
+  process.env.NODE_ENV = "production";
+}
 var activePort = 3e3;
 function findFreePort(startPort) {
   return new Promise((resolve) => {
@@ -52,7 +55,8 @@ async function startExpressServer() {
       process.env.PORT = activePort.toString();
       console.log(`Starting production Express server on port ${activePort}...`);
       const serverPath = path.join(app.getAppPath(), "dist", "server.cjs");
-      await import(serverPath);
+      const serverUrl = pathToFileURL(serverPath).href;
+      await import(serverUrl);
       console.log("Production Express server started successfully.");
     } catch (error) {
       console.error("Failed to start production Express server:", error);

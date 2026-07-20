@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import * as cheerio from "cheerio";
 import dotenv from "dotenv";
@@ -9,7 +10,12 @@ import https from "https";
 import { exec } from "child_process";
 import { GoogleGenAI } from "@google/genai";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 dotenv.config();
+
+const isProd = process.env.NODE_ENV === "production" || !process.env.VITE_DEV_SERVER;
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -1445,14 +1451,14 @@ app.delete("/api/history", (req, res) => {
 
 // Setup Vite or static files serving
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = __dirname;
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
