@@ -2,6 +2,7 @@
 var import_electron = require("electron");
 import_electron.contextBridge.exposeInMainWorld("electronAPI", {
   getAppVersion: () => import_electron.ipcRenderer.invoke("get-app-version"),
+  selectDirectory: () => import_electron.ipcRenderer.invoke("select-directory"),
   checkForUpdates: () => import_electron.ipcRenderer.invoke("check-for-updates"),
   onUpdateAvailable: (callback) => {
     const listener = (_event, info) => callback(info);

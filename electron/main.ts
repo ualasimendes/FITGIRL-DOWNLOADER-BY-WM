@@ -147,6 +147,15 @@ ipcMain.handle("get-app-version", () => {
   return app.getVersion();
 });
 
+ipcMain.handle("select-directory", async () => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openDirectory"]
+  });
+  if (result.canceled) return null;
+  return result.filePaths[0];
+});
+
 ipcMain.handle("check-for-updates", () => {
   if (!isDev) {
     return autoUpdater.checkForUpdatesAndNotify();

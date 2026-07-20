@@ -68,6 +68,7 @@ declare global {
       checkForUpdates: () => Promise<any>;
       onUpdateAvailable: (callback: (info: any) => void) => () => void;
       onDownloadProgress: (callback: (percent: number) => void) => () => void;
+      selectDirectory: () => Promise<string | null>;
     };
   }
 }
@@ -176,7 +177,8 @@ export default function App() {
     const loadState = async () => {
       try {
         const res = await fetch("/api/state");
-        if (res.ok) {
+        const contentType = res.headers.get("content-type");
+        if (res.ok && contentType && contentType.includes("application/json")) {
           const data = await res.json();
           if (data.settings) setSettings(data.settings);
           if (data.libraryGames) {
@@ -202,7 +204,8 @@ export default function App() {
     const interval = setInterval(async () => {
       try {
         const res = await fetch("/api/state");
-        if (res.ok) {
+        const contentType = res.headers.get("content-type");
+        if (res.ok && contentType && contentType.includes("application/json")) {
           const data = await res.json();
           if (data.queue) setQueue(data.queue);
           if (data.libraryGames) setLibraryGames(data.libraryGames);
@@ -2881,18 +2884,31 @@ export default function App() {
                               />
                             </div>
                             <button
-                              onClick={() => {
-                                const systemPaths = [
-                                  "C:\\Downloads\\FitGirlRepacks",
-                                  "D:\\Games\\FitGirlExtracts",
-                                  "E:\\SteamLibrary\\steamapps\\common",
-                                  "C:\\Users\\User\\Downloads\\MyRepacks",
-                                  "/home/user/Downloads/FitGirl"
-                                ];
-                                const randomPath = systemPaths[Math.floor(Math.random() * systemPaths.length)];
-                                updateSettings({ ...settings, downloadDirectory: randomPath });
-                                addLog(`[Settings] Standard save directory path changed: ${randomPath}`);
-                                setSuccessMsg("Folder updated!");
+                              onClick={async () => {
+                                if (window.electronAPI?.selectDirectory) {
+                                  try {
+                                    const selectedPath = await window.electronAPI.selectDirectory();
+                                    if (selectedPath) {
+                                      updateSettings({ ...settings, downloadDirectory: selectedPath });
+                                      addLog(`[Settings] Standard save directory path changed: ${selectedPath}`);
+                                      setSuccessMsg("Folder updated!");
+                                    }
+                                  } catch (err: any) {
+                                    addLog(`[Settings] Error choosing directory: ${err.message}`);
+                                  }
+                                } else {
+                                  const systemPaths = [
+                                    "C:\\Downloads\\FitGirlRepacks",
+                                    "D:\\Games\\FitGirlExtracts",
+                                    "E:\\SteamLibrary\\steamapps\\common",
+                                    "C:\\Users\\User\\Downloads\\MyRepacks",
+                                    "/home/user/Downloads/FitGirl"
+                                  ];
+                                  const randomPath = systemPaths[Math.floor(Math.random() * systemPaths.length)];
+                                  updateSettings({ ...settings, downloadDirectory: randomPath });
+                                  addLog(`[Settings] Standard save directory path changed (simulated): ${randomPath}`);
+                                  setSuccessMsg("Folder updated!");
+                                }
                               }}
                               className="text-[10px] font-bold bg-slate-900 hover:bg-slate-700 text-sky-400 border border-slate-700 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap"
                               title={t("browseFolderTip")}

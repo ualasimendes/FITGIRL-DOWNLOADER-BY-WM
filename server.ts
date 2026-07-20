@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import fs from "fs";
 import http from "http";
 import https from "https";
+import { exec } from "child_process";
 
 dotenv.config();
 
@@ -827,51 +828,45 @@ setInterval(() => {
         }
       }
     } else {
-      // Torrent / Magnet / Fallback stream (simulates real disk writing in proportional chunks on native filesystem)
-      const downloadDir = settings.downloadDirectory;
-      if (!fs.existsSync(downloadDir)) {
-        fs.mkdirSync(downloadDir, { recursive: true });
-      }
+      // Torrent / Magnet / Fallback stream
+      const isMagnet = item.url.startsWith("magnet:");
+      const isTorrentFile = item.url.toLowerCase().endsWith(".torrent") || item.url.toLowerCase().includes(".torrent");
 
-      const sanitize = (name: string) => name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-      const filename = `${sanitize(item.repackTitle)}_${sanitize(item.linkText)}.downloading`;
-      const filePath = path.join(downloadDir, filename);
-
-      const sizeGB = parseFloat(item.size) * (item.size.includes("GB") ? 1 : 0.001);
-      const totalSizeBytes = sizeGB * 1024 * 1024 * 1024;
-
-      let speedMB = 20.0 + Math.random() * 15.0;
-      if (settings.speedLimit === "1") speedMB = 0.8 + Math.random() * 0.4;
-      else if (settings.speedLimit === "5") speedMB = 4.2 + Math.random() * 1.5;
-      else if (settings.speedLimit === "10") speedMB = 8.5 + Math.random() * 2.5;
-
-      const addedBytes = speedMB * 1024 * 1024;
-      const nextProgress = Math.min(100, item.progress + (addedBytes / totalSizeBytes) * 100);
-      
-      try {
-        fs.appendFileSync(filePath, Buffer.alloc(Math.min(addedBytes, 5 * 1024 * 1024))); // throttle disk writes at 5MB/s to avoid container exhaustion
-      } catch (e) {}
-
-      const isDone = nextProgress >= 100;
-      item.progress = parseFloat(nextProgress.toFixed(1));
-      item.speed = isDone ? "-" : `${speedMB.toFixed(1)} MB/s`;
-
-      if (isDone) {
-        item.status = "completed";
-        item.eta = "Concluído";
-        appendBackendLog(`[Queue] Download concluído (via torrent/magnet): "${item.linkText}"`);
-        
+      if (isMagnet || isTorrentFile) {
+        // Run real operating system command to open it in their default torrent client (e.g., qBittorrent, uTorrent)
         try {
-          const completedPath = path.join(downloadDir, `${sanitize(item.repackTitle)}_${sanitize(item.linkText)}.completed`);
-          if (fs.existsSync(filePath)) {
-            fs.renameSync(filePath, completedPath);
+          const isWindows = process.platform === "win32";
+          let cmd = "";
+          if (isWindows) {
+            cmd = `start "" "${item.url}"`;
+          } else {
+            cmd = `open "${item.url}" || xdg-open "${item.url}"`;
           }
-        } catch (e) {}
+
+          appendBackendLog(`[Torrent/Magnet] Enviando link para o cliente BitTorrent do sistema: "${item.linkText}"`);
+          
+          exec(cmd, (error) => {
+            if (error) {
+              appendBackendLog(`[Torrent/Magnet Error] Não foi possível abrir o cliente torrent nativo do sistema: ${error.message}`);
+            } else {
+              appendBackendLog(`[Torrent/Magnet] Link aberto com sucesso no cliente BitTorrent principal.`);
+            }
+          });
+        } catch (e: any) {
+          appendBackendLog(`[Torrent/Magnet Error] Erro ao disparar cliente de torrent: ${e.message}`);
+        }
+
+        // Set status to completed immediately as the local client manages it
+        item.status = "completed";
+        item.progress = 100;
+        item.speed = "Sincronizado";
+        item.eta = "Cliente Externo";
+        appendBackendLog(`[Queue] Download offloaded com sucesso para o cliente torrent: "${item.linkText}"`);
 
         const history = getHistory();
         const newHist: HistoryItem = {
           id: Math.random().toString(36).substring(2, 9),
-          queryOrUrl: `${item.repackTitle} - ${item.linkText} (${item.hoster})`,
+          queryOrUrl: `${item.repackTitle} - Torrent/Magnet Externo`,
           type: "url",
           timestamp: new Date().toLocaleString(),
           resultsCount: 1
@@ -879,11 +874,64 @@ setInterval(() => {
         history.unshift(newHist);
         writeJSON("history.json", history.slice(0, 50));
       } else {
-        const remainingGB = sizeGB * (1 - item.progress / 100);
-        const remainingBytes = remainingGB * 1024 * 1024 * 1024;
-        const seconds = remainingBytes / addedBytes;
-        if (seconds < 60) item.eta = `${Math.ceil(seconds)}s`;
-        else item.eta = `${Math.floor(seconds / 60)}m ${Math.ceil(seconds % 60)}s`;
+        // Fallback or simulated progress
+        const downloadDir = settings.downloadDirectory;
+        if (!fs.existsSync(downloadDir)) {
+          fs.mkdirSync(downloadDir, { recursive: true });
+        }
+
+        const sanitize = (name: string) => name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+        const filename = `${sanitize(item.repackTitle)}_${sanitize(item.linkText)}.downloading`;
+        const filePath = path.join(downloadDir, filename);
+
+        const sizeGB = parseFloat(item.size) * (item.size.includes("GB") ? 1 : 0.001);
+        const totalSizeBytes = sizeGB * 1024 * 1024 * 1024;
+
+        let speedMB = 20.0 + Math.random() * 15.0;
+        if (settings.speedLimit === "1") speedMB = 0.8 + Math.random() * 0.4;
+        else if (settings.speedLimit === "5") speedMB = 4.2 + Math.random() * 1.5;
+        else if (settings.speedLimit === "10") speedMB = 8.5 + Math.random() * 2.5;
+
+        const addedBytes = speedMB * 1024 * 1024;
+        const nextProgress = Math.min(100, item.progress + (addedBytes / totalSizeBytes) * 100);
+        
+        try {
+          fs.appendFileSync(filePath, Buffer.alloc(Math.min(addedBytes, 5 * 1024 * 1024))); // throttle disk writes
+        } catch (e) {}
+
+        const isDone = nextProgress >= 100;
+        item.progress = parseFloat(nextProgress.toFixed(1));
+        item.speed = isDone ? "-" : `${speedMB.toFixed(1)} MB/s`;
+
+        if (isDone) {
+          item.status = "completed";
+          item.eta = "Concluído";
+          appendBackendLog(`[Queue] Download concluído: "${item.linkText}"`);
+          
+          try {
+            const completedPath = path.join(downloadDir, `${sanitize(item.repackTitle)}_${sanitize(item.linkText)}.completed`);
+            if (fs.existsSync(filePath)) {
+              fs.renameSync(filePath, completedPath);
+            }
+          } catch (e) {}
+
+          const history = getHistory();
+          const newHist: HistoryItem = {
+            id: Math.random().toString(36).substring(2, 9),
+            queryOrUrl: `${item.repackTitle} - ${item.linkText} (${item.hoster})`,
+            type: "url",
+            timestamp: new Date().toLocaleString(),
+            resultsCount: 1
+          };
+          history.unshift(newHist);
+          writeJSON("history.json", history.slice(0, 50));
+        } else {
+          const remainingGB = sizeGB * (1 - item.progress / 100);
+          const remainingBytes = remainingGB * 1024 * 1024 * 1024;
+          const seconds = remainingBytes / addedBytes;
+          if (seconds < 60) item.eta = `${Math.ceil(seconds)}s`;
+          else item.eta = `${Math.floor(seconds / 60)}m ${Math.ceil(seconds % 60)}s`;
+        }
       }
     }
   }
@@ -1160,17 +1208,37 @@ app.post("/api/library/:id/launch", (req, res) => {
   game.lastPlayed = new Date().toLocaleDateString();
 
   writeJSON("library.json", library);
-  appendBackendLog(`[Launcher] Launched game: "${game.title}". Tracker started.`);
+  appendBackendLog(`[Launcher] Iniciando jogo real: "${game.title}". Monitoramento de tempo ativo.`);
 
-  // If we are in Electron desktop mode, we can try launching actual executables!
-  // This is extremely real and powerful!
   try {
-    const fullExePath = path.join(game.installPath, game.exePath);
+    const fullExePath = path.isAbsolute(game.exePath)
+      ? game.exePath
+      : path.join(game.installPath, game.exePath);
+
     if (fs.existsSync(fullExePath)) {
-      appendBackendLog(`[Launcher] Electron Shell - Executing real launcher path: "${fullExePath}"`);
-      // Since we are in Node container, we can optionally spawn process or write shell logs!
+      appendBackendLog(`[Launcher] Executando processo local: "${fullExePath}" ${game.launchArguments || ""}`);
+      
+      const isWindows = process.platform === "win32";
+      let cmd = "";
+      if (isWindows) {
+        cmd = `start "" "${fullExePath}" ${game.launchArguments || ""}`;
+      } else {
+        cmd = `open "${fullExePath}" || xdg-open "${fullExePath}" || wine "${fullExePath}"`;
+      }
+
+      exec(cmd, { cwd: game.installPath }, (error) => {
+        if (error) {
+          appendBackendLog(`[Launcher Error] Falha ao rodar jogo: ${error.message}`);
+        } else {
+          appendBackendLog(`[Launcher] Processo do jogo rodando com sucesso.`);
+        }
+      });
+    } else {
+      appendBackendLog(`[Launcher Info] Executável não localizado em "${fullExePath}". Iniciando tracker em modo simulado.`);
     }
-  } catch (err) {}
+  } catch (err: any) {
+    appendBackendLog(`[Launcher Error] Falha de launcher: ${err.message}`);
+  }
 
   res.json({ success: true, library });
 });
@@ -1185,7 +1253,7 @@ app.post("/api/library/:id/stop", (req, res) => {
 
   game.status = "ready";
   writeJSON("library.json", library);
-  appendBackendLog(`[Launcher] Stopped game: "${game.title}". Tracker saved.`);
+  appendBackendLog(`[Launcher] Parando tracker de jogo: "${game.title}". Sessão finalizada.`);
   res.json({ success: true, library });
 });
 
@@ -1197,11 +1265,51 @@ app.post("/api/library/:id/install", (req, res) => {
 
   if (!game) return res.status(404).json({ error: "Game not found." });
 
-  game.status = "installing";
-  game.progress = 0;
+  // Let's search if there's a Setup.exe or setup.exe in the install path or download directory
+  let foundInstaller = "";
+  try {
+    const searchDirs = [
+      game.installPath,
+      path.join(getSettings().downloadDirectory, game.title),
+      getSettings().downloadDirectory
+    ];
+
+    for (const dir of searchDirs) {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        const setupFile = files.find(f => f.toLowerCase() === "setup.exe");
+        if (setupFile) {
+          foundInstaller = path.join(dir, setupFile);
+          break;
+        }
+      }
+    }
+  } catch (err) {}
+
+  if (foundInstaller) {
+    appendBackendLog(`[Installer] Localizado instalador oficial da FitGirl em: "${foundInstaller}"`);
+    appendBackendLog(`[Installer] Executando instalador oficial do Repack...`);
+    
+    // Set status to installing but run the real installer in background
+    game.status = "installing";
+    game.progress = 0;
+    
+    const isWindows = process.platform === "win32";
+    const cmd = isWindows ? `start "" "${foundInstaller}"` : `open "${foundInstaller}" || xdg-open "${foundInstaller}" || wine "${foundInstaller}"`;
+    
+    exec(cmd, { cwd: path.dirname(foundInstaller) }, (error) => {
+      if (error) {
+        appendBackendLog(`[Installer Error] Erro ao iniciar instalador: ${error.message}`);
+      }
+    });
+  } else {
+    // Fallback to simulated installation progress
+    game.status = "installing";
+    game.progress = 0;
+    appendBackendLog(`[Library] Instalador real "setup.exe" não encontrado. Iniciando desembrulho virtual de pacotes...`);
+  }
 
   writeJSON("library.json", library);
-  appendBackendLog(`[Library] Commenced background installation/unpacker for game: "${game.title}"`);
   res.json({ success: true, library });
 });
 

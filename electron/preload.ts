@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 // Expose safe APIs to the React renderer (frontend)
 contextBridge.exposeInMainWorld("electronAPI", {
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+  selectDirectory: () => ipcRenderer.invoke("select-directory"),
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
   onUpdateAvailable: (callback: (info: any) => void) => {
     const listener = (_event: any, info: any) => callback(info);
