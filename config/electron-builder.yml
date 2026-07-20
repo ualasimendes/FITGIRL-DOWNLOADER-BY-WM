@@ -32,3 +32,4 @@ publish:
   provider: github
   owner: ualasimendes
   repo: FITGIRL-DOWNLOADER-BY-WM
+  releaseType: release
