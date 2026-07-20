@@ -7,11 +7,28 @@ import fs from "fs";
 import http from "http";
 import https from "https";
 import { exec } from "child_process";
+import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+let aiClient: any = null;
+try {
+  if (process.env.GEMINI_API_KEY) {
+    aiClient = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+  }
+} catch (err) {
+  console.error("Erro ao inicializar cliente GoogleGenAI:", err);
+}
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -1002,6 +1019,51 @@ app.get("/api/state", (req, res) => {
     history: getHistory(),
     systemLogs: getLogs()
   });
+});
+
+// GEMINI AI RECOMMENDATIONS SECURE ENDPOINT
+app.post("/api/gemini/suggest", async (req, res) => {
+  const { preferences } = req.body;
+  if (!preferences) {
+    return res.status(400).json({ error: "Preferências não enviadas." });
+  }
+
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(400).json({ error: "Chave de API do Gemini não configurada no servidor (adicione a variável GEMINI_API_KEY)." });
+    }
+
+    if (!aiClient) {
+      aiClient = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      });
+    }
+
+    const response = await aiClient.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `Você é um recomendador de jogos especialista em repacks da FitGirl. Recomende 3 a 5 jogos excelentes com base nestas preferências do jogador: "${preferences}". Responda em Português do Brasil com descrições curtas e dicas úteis.`
+            }
+          ]
+        }
+      ]
+    });
+
+    const text = response.text || "Nenhuma recomendação gerada.";
+    res.json({ success: true, recommendations: text });
+  } catch (error: any) {
+    console.error("[Gemini Error]:", error);
+    res.status(500).json({ error: `Erro ao chamar o Gemini: ${error.message || error}` });
+  }
 });
 
 // 2. SAVE SETTINGS

@@ -109,6 +109,34 @@ export default function App() {
   const [totalPages, setTotalPages] = useState(1);
   const [isSearching, setIsSearching] = useState(false);
   
+  // Gemini AI state
+  const [aiInput, setAiInput] = useState("");
+  const [aiRecommendation, setAiRecommendation] = useState("");
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  const getAiRecommendations = async () => {
+    if (!aiInput.trim()) return;
+    setIsAiLoading(true);
+    setAiRecommendation("");
+    try {
+      const res = await fetch("/api/gemini/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferences: aiInput }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAiRecommendation(data.recommendations);
+      } else {
+        setAiRecommendation(`Erro: ${data.error || "Erro ao obter recomendações."}`);
+      }
+    } catch (err: any) {
+      setAiRecommendation(`Falha de comunicação: ${err.message}`);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+  
   // URL Extractor state
   const [targetUrl, setTargetUrl] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
@@ -2023,6 +2051,47 @@ export default function App() {
                           {preset}
                         </button>
                       ))}
+                    </div>
+
+                    {/* Gemini AI Recommendations Section */}
+                    <div className="bg-slate-800/50 rounded-2xl p-5 border border-slate-700/80 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
+                            <Sparkles size={16} />
+                          </div>
+                          <div>
+                            <h3 className="text-xs font-bold text-white">Recomendações Inteligentes por IA</h3>
+                            <p className="text-[10px] text-slate-400">O que você quer jogar hoje? Conte suas preferências para a IA do Google Gemini</p>
+                          </div>
+                        </div>
+                        <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 font-mono text-slate-400">Gemini 3.5 Flash</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={aiInput}
+                          onChange={(e) => setAiInput(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && getAiRecommendations()}
+                          placeholder="Ex: RPGs de mundo aberto desafiadores ou jogos de aventura indie com ótima história..."
+                          className="flex-1 px-4 py-2 bg-slate-900 border border-slate-700 rounded-xl focus:ring-2 focus:ring-sky-500 text-xs placeholder:text-slate-500 text-white focus:outline-none transition-all"
+                        />
+                        <button
+                          onClick={getAiRecommendations}
+                          disabled={isAiLoading}
+                          className="px-4 py-2 bg-gradient-to-br from-indigo-500 to-sky-500 text-white text-xs font-bold rounded-xl transition hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-500/10"
+                        >
+                          {isAiLoading ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                          <span>Sugerir</span>
+                        </button>
+                      </div>
+
+                      {aiRecommendation && (
+                        <div className="bg-slate-900 p-4 rounded-xl border border-slate-750 text-xs text-slate-300 leading-relaxed max-h-[160px] overflow-y-auto whitespace-pre-line font-sans scrollbar-thin scrollbar-thumb-slate-700">
+                          {aiRecommendation}
+                        </div>
+                      )}
                     </div>
 
                     {/* Results Container */}
