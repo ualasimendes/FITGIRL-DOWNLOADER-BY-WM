@@ -2517,11 +2517,11 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Main Layout Area: Two column split on desktop (Fila Menor à esquerda, Web Automático Maior à direita) */}
+                    {/* Main Layout Area: Full Width Queue Board */}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
                       
-                      {/* Left Side: Controls and Queue Tasks Board (Compact/Narrower Panel: lg:col-span-5) */}
-                      <div className="lg:col-span-5 space-y-4 flex flex-col justify-start">
+                      {/* Left Side: Controls and Queue Tasks Board (Full Width Panel: lg:col-span-12) */}
+                      <div className="lg:col-span-12 space-y-4 flex flex-col justify-start">
                         {/* Controls & Queue Manager Action Bar */}
                         <div className="bg-slate-800 p-3.5 rounded-2xl border border-slate-700 space-y-3.5 shadow-sm">
                           <div className="flex flex-col gap-3">
@@ -2760,231 +2760,64 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Right Side: Automated Web Downloader Sandbox (Virtual Browser Frame is LARGER and SAVE DIRECTORY underneath) */}
-                      <div className="lg:col-span-7 flex flex-col gap-4">
-                        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-4 flex flex-col flex-1 gap-4 shadow-sm">
-                          <div className="space-y-1">
-                            <div className="flex justify-between items-center">
-                              <h3 className="text-xs font-black text-sky-400 flex items-center gap-1.5 uppercase font-mono tracking-wider">
-                                <Globe size={14} className="text-sky-400" />
-                                Automated Browser Sandbox (Navegador Automático)
-                              </h3>
-                              <span className="px-1.5 py-0.5 bg-sky-950/60 text-sky-400 border border-sky-900 rounded text-[9px] font-mono font-bold uppercase animate-pulse">
-                                Active Agent
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-slate-400 leading-tight">
-                              Seu agente seq-downloader gerencia o Cloudflare e faz download dos espelhos automaticamente de forma sequencial.
-                            </p>
-                          </div>
-
-                          {/* Interactive Browser Frame UI - LARGER VIEWPORT */}
-                          <div className="bg-slate-900 border border-slate-700 rounded-xl flex-1 flex flex-col overflow-hidden min-h-[420px] justify-between shadow-inner">
-                            {/* Browser Top Bar */}
-                            <div className="bg-slate-950 px-3 py-2 border-b border-slate-800 flex items-center gap-2 text-xs font-mono select-none shrink-0">
-                              {/* Window Circles */}
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <div className="w-2.5 h-2.5 rounded-full bg-red-500/70"></div>
-                                <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/70"></div>
-                                <div className="w-2.5 h-2.5 rounded-full bg-green-500/70"></div>
-                              </div>
-                              
-                              {/* Navigation Indicators */}
-                              <div className="flex items-center gap-1 text-slate-600 shrink-0 ml-1">
-                                <ChevronRight size={14} className="rotate-180" />
-                                <ChevronRight size={14} />
-                                <RefreshCw size={11} className={`${queue.some(q => q.status === "processing") ? "animate-spin text-sky-500" : ""}`} />
-                              </div>
-
-                              {/* Address Bar - MUCH WIDER AND LARGER */}
-                              <div className="flex-1 bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-[11px] text-slate-400 truncate flex items-center gap-1.5">
-                                <Lock size={10} className="text-emerald-400 shrink-0" />
-                                <span className="text-slate-200 select-all font-mono truncate">
-                                  {queue.find(q => q.status === "processing")?.url || "https://fitgirl-repacks.site/downloader-agent-pipeline/"}
-                                </span>
-                              </div>
-                              
-                              <span className="text-[9px] text-emerald-400 font-bold shrink-0 bg-emerald-950/40 border border-emerald-900/60 px-1 py-0.5 rounded">
-                                AUTO-DDL
-                              </span>
-                            </div>
-
-                            {/* Browser Webpage Simulator Workspace */}
-                            <div className="flex-1 bg-slate-950 p-4 font-mono text-[11px] flex flex-col justify-between gap-4 overflow-y-auto">
-                              {(() => {
-                                const activeItem = queue.find(q => q.status === "processing");
-                                if (activeItem) {
-                                  const automation = getBrowserAutomationStep(activeItem.progress, activeItem);
-                                  return (
-                                    <>
-                                      {/* Visual Status Indicator */}
-                                      <div className="space-y-3">
-                                        <div className="flex justify-between items-center border-b border-slate-850 pb-2">
-                                          <span className="text-slate-500 text-[10px] uppercase">Simulation Workspace</span>
-                                          <span className="text-indigo-400 font-bold animate-pulse text-[10px]">{automation.status}</span>
-                                        </div>
-
-                                        {/* Header Title inside browser */}
-                                        <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-1.5">
-                                          <div className="flex items-center justify-between text-[10px] text-slate-500">
-                                            <span>TARGET: {activeItem.hoster}</span>
-                                            <span>STAGE {automation.step}/6</span>
-                                          </div>
-                                          <h4 className="text-slate-200 font-bold truncate text-[11px]">
-                                            {activeItem.repackTitle}
-                                          </h4>
-                                          <p className="text-[10px] text-sky-400 truncate">
-                                            File: {activeItem.linkText}
-                                          </p>
-                                        </div>
-
-                                        {/* Step progress checklist */}
-                                        <div className="space-y-1 text-[10px] text-slate-400">
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-emerald-400 font-bold">✓</span>
-                                            <span className={`${automation.step >= 1 ? "text-slate-300" : "text-slate-600"}`}>Sandbox agent container online</span>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                            <span className={automation.step >= 2 ? "text-emerald-400 font-bold" : "text-slate-600"}>
-                                              {automation.step >= 2 ? "✓" : "○"}
-                                            </span>
-                                            <span className={`${automation.step >= 2 ? "text-slate-300" : "text-slate-600"}`}>Cloudflare protection bypass</span>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                            <span className={automation.step >= 3 ? "text-emerald-400 font-bold" : "text-slate-600"}>
-                                              {automation.step >= 3 ? "✓" : "○"}
-                                            </span>
-                                            <span className={`${automation.step >= 3 ? "text-slate-300" : "text-slate-600"}`}>Hoster server ticket queue solved</span>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                            <span className={automation.step >= 4 ? "text-emerald-400 font-bold" : "text-slate-600"}>
-                                              {automation.step >= 4 ? "✓" : "○"}
-                                            </span>
-                                            <span className={`${automation.step >= 4 ? "text-slate-300" : "text-slate-600"}`}>Direct DDL link extracted</span>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                            <span className={automation.step >= 5 ? "text-emerald-400 font-bold animate-pulse" : "text-slate-600"}>
-                                              {automation.step >= 5 ? "⚡" : "○"}
-                                            </span>
-                                            <span className={`${automation.step >= 5 ? "text-slate-300" : "text-slate-600"}`}>
-                                              Piping socket stream (Progress: {activeItem.progress}%)
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      {/* Simulated Stream Logs terminal lines */}
-                                      <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-850 text-[10px] text-slate-400 font-mono space-y-1.5 overflow-hidden">
-                                        <div className="flex items-center justify-between text-[8px] text-slate-500 uppercase tracking-widest border-b border-slate-850 pb-1">
-                                          <span>Hoster Agent Stream Logs</span>
-                                          <span className="text-emerald-400">STREAMING ACTIVE</span>
-                                        </div>
-                                        {automation.logs.map((log, lIdx) => (
-                                          <p key={lIdx} className="truncate select-text">
-                                            <span className="text-indigo-400 font-bold">»</span> {log}
-                                          </p>
-                                        ))}
-                                        {activeItem.status === "processing" && (
-                                          <p className="text-[9px] text-slate-500 animate-pulse">
-                                            [Socket] Bytes transfer speed: {activeItem.speed} | ETA: {activeItem.eta}
-                                          </p>
-                                        )}
-                                      </div>
-                                    </>
-                                  );
-                                }
-
-                                // Queue has items but none is active (e.g. paused)
-                                const hasInactiveItems = queue.length > 0;
-                                if (hasInactiveItems) {
-                                  return (
-                                    <div className="flex flex-col items-center justify-center text-center h-full gap-3 select-none py-10">
-                                      <Cpu size={28} className="text-amber-500 animate-pulse" />
-                                      <div className="space-y-1">
-                                        <h4 className="text-slate-200 font-bold text-xs font-sans">Automated Downloader Standby</h4>
-                                        <p className="text-[10px] text-slate-500 max-w-xs font-sans">
-                                          Tasks are currently paused or waiting. Press <strong className="text-white">"Start All"</strong> above to launch the auto-downloader browser.
-                                        </p>
-                                      </div>
-                                    </div>
-                                  );
-                                }
-
-                                // Empty Queue State
-                                return (
-                                  <div className="flex flex-col items-center justify-center text-center h-full gap-3 select-none py-10">
-                                    <Globe size={28} className="text-slate-700 animate-pulse" />
-                                    <div className="space-y-1">
-                                      <h4 className="text-slate-400 font-bold text-xs font-sans">No Active Web Sessions</h4>
-                                      <p className="text-[10px] text-slate-500 max-w-xs font-sans leading-relaxed">
-                                        Add Multi-Part or Single Direct game links to your queue. The background scraper agent will automatically open, verify Cloudflare, bypass timer waits, and stream files to your disk.
-                                      </p>
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          </div>
+                      {/* Save Folder Block - Positioned elegantly below the history list */}
+                      <div className="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+                        <div className="space-y-1 text-left flex-1 min-w-0">
+                          <h3 className="text-xs font-black text-white flex items-center gap-1.5 uppercase tracking-wider">
+                            <Save size={14} className="text-indigo-400" />
+                            {t("saveDir")} (Pasta Padrão de Downloads)
+                          </h3>
+                          <p className="text-[10px] text-slate-400 leading-tight">
+                            {lang === "pt" ? "Defina onde você armazena seus repacks baixados para facilitar a extração posterior." : "Define where you store your downloaded repacks to facilitate extraction later."}
+                          </p>
                         </div>
 
-                        {/* Save Folder Block - POSITIONED DIRECTLY UNDERNEATH THE BROWSER SANDBOX */}
-                        <div className="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
-                          <div className="space-y-1 text-left flex-1 min-w-0">
-                            <h3 className="text-xs font-black text-white flex items-center gap-1.5 uppercase tracking-wider">
-                              <Save size={14} className="text-indigo-400" />
-                              {t("saveDir")} (Onde Salvar o Download)
-                            </h3>
-                            <p className="text-[10px] text-slate-400 leading-tight truncate">
-                              Pasta destino local onde o navegador automático vai salvar os arquivos baixados.
-                            </p>
+                        <div className="flex items-center gap-2 w-full md:w-auto min-w-[320px]">
+                          <div className="relative flex-1">
+                            <input
+                              type="text"
+                              value={settings.downloadDirectory || "C:\\Downloads\\FitGirlRepacks"}
+                              onChange={(e) => {
+                                const path = e.target.value;
+                                updateSettings({ ...settings, downloadDirectory: path });
+                              }}
+                              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-indigo-300 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              placeholder="e.g., C:\Downloads\FitGirlRepacks"
+                            />
                           </div>
 
-                          <div className="flex items-center gap-2 w-full md:w-auto min-w-[320px]">
-                            <div className="relative flex-1">
-                              <input
-                                type="text"
-                                value={settings.downloadDirectory || "C:\\Downloads\\FitGirlRepacks"}
-                                onChange={(e) => {
-                                  const path = e.target.value;
-                                  updateSettings({ ...settings, downloadDirectory: path });
-                                }}
-                                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-indigo-300 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                placeholder="e.g., C:\Downloads\FitGirlRepacks"
-                              />
-                            </div>
-                            <button
-                              onClick={async () => {
-                                if (window.electronAPI?.selectDirectory) {
-                                  try {
-                                    const selectedPath = await window.electronAPI.selectDirectory();
-                                    if (selectedPath) {
-                                      updateSettings({ ...settings, downloadDirectory: selectedPath });
-                                      addLog(`[Settings] Standard save directory path changed: ${selectedPath}`);
-                                      setSuccessMsg("Folder updated!");
-                                    }
-                                  } catch (err: any) {
-                                    addLog(`[Settings] Error choosing directory: ${err.message}`);
+                          <button
+                            onClick={async () => {
+                              if (window.electronAPI?.selectDirectory) {
+                                try {
+                                  const selectedPath = await window.electronAPI.selectDirectory();
+                                  if (selectedPath) {
+                                    updateSettings({ ...settings, downloadDirectory: selectedPath });
+                                    addLog(`[Settings] Standard save directory path changed: ${selectedPath}`);
+                                    setSuccessMsg("Folder updated!");
                                   }
-                                } else {
-                                  const systemPaths = [
-                                    "C:\\Downloads\\FitGirlRepacks",
-                                    "D:\\Games\\FitGirlExtracts",
-                                    "E:\\SteamLibrary\\steamapps\\common",
-                                    "C:\\Users\\User\\Downloads\\MyRepacks",
-                                    "/home/user/Downloads/FitGirl"
-                                  ];
-                                  const randomPath = systemPaths[Math.floor(Math.random() * systemPaths.length)];
-                                  updateSettings({ ...settings, downloadDirectory: randomPath });
-                                  addLog(`[Settings] Standard save directory path changed (simulated): ${randomPath}`);
-                                  setSuccessMsg("Folder updated!");
+                                } catch (err: any) {
+                                  addLog(`[Settings] Error choosing directory: ${err.message}`);
                                 }
-                              }}
-                              className="text-[10px] font-bold bg-slate-900 hover:bg-slate-700 text-sky-400 border border-slate-700 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap"
-                              title={t("browseFolderTip")}
-                            >
-                              {t("browseFolder")}
-                            </button>
-                          </div>
+                              } else {
+                                const systemPaths = [
+                                  "C:\\Downloads\\FitGirlRepacks",
+                                  "D:\\Games\\FitGirlExtracts",
+                                  "E:\\SteamLibrary\\steamapps\\common",
+                                  "C:\\Users\\User\\Downloads\\MyRepacks",
+                                  "/home/user/Downloads/FitGirl"
+                                ];
+                                const randomPath = systemPaths[Math.floor(Math.random() * systemPaths.length)];
+                                updateSettings({ ...settings, downloadDirectory: randomPath });
+                                addLog(`[Settings] Standard save directory path changed (simulated): ${randomPath}`);
+                                setSuccessMsg("Folder updated!");
+                              }
+                            }}
+                            className="text-[10px] font-bold bg-slate-900 hover:bg-slate-700 text-sky-400 border border-slate-700 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap"
+                            title={t("browseFolderTip")}
+                          >
+                            {t("browseFolder")}
+                          </button>
                         </div>
                       </div>
 

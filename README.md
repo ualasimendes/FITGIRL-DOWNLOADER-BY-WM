@@ -1,9 +1,5 @@
 # FitGirl Desktop Extractor (by WM)
 
-[![Release](https://img.shields.io/github/v/release/ualasimendes/FITGIRL-DOWNLOADER-BY-WM?style=flat-square)](https://github.com/ualasimendes/FITGIRL-DOWNLOADER-BY-WM/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows-0078d7.svg?style=flat-square&logo=windows)](https://github.com/ualasimendes/FITGIRL-DOWNLOADER-BY-WM)
-[![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](https://github.com/ualasimendes/FITGIRL-DOWNLOADER-BY-WM)
-
 O **FitGirl Desktop Extractor** é o gerenciador, buscador e extrator definitivo de repacks para Windows, projetado para proporcionar uma experiência robusta, direta e sem fricções. O usuário final não necessita de instalações adicionais de Node.js, Git ou interpretadores de linha de comando — tudo é executado através de um único instalador profissional de alta performance.
 
 ---
@@ -22,7 +18,7 @@ O **FitGirl Desktop Extractor** é o gerenciador, buscador e extrator definitivo
 
 Para o usuário final, a instalação é simples e direta:
 
-1. Acesse a seção de **[Releases no GitHub](https://github.com/ualasimendes/FITGIRL-DOWNLOADER-BY-WM/releases)**.
+1. Acesse a seção de **[Releases no GitHub](../../releases)**.
 2. Baixe o instalador oficial: `FitGirl-Desktop-Extractor-Setup-1.0.0.exe` (ou a versão mais recente disponível).
 3. Execute o instalador e siga as instruções na tela.
 4. Um atalho será criado em sua Área de Trabalho e no Menu Iniciar.
@@ -73,7 +69,7 @@ Toda a distribuição do aplicativo foi automatizada na nuvem via **GitHub Actio
    * Instalará as dependências exatas via `npm ci`.
    * Realizará o build completo e a compilação do servidor e do frontend.
    * Executará o `electron-builder` para criar o instalador de Setup (`nsis`), a versão portátil (`portable`) e o arquivo descritor `latest.yml`.
-   * **Publicará a Release automaticamente** no repositório `ualasimendes/FITGIRL-DOWNLOADER-BY-WM` com os arquivos anexados.
+   * **Publicará a Release automaticamente** no seu repositório do GitHub com os arquivos anexados.
 
 ---
 

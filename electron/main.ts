@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import pkg from "electron-updater";
@@ -220,4 +220,17 @@ ipcMain.handle("check-for-updates", () => {
     return autoUpdater.checkForUpdatesAndNotify();
   }
   return { message: "Auto-updater is disabled in development mode." };
+});
+
+ipcMain.handle("open-external", async (_event, url) => {
+  if (url && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("magnet:"))) {
+    try {
+      await shell.openExternal(url);
+      return true;
+    } catch (err) {
+      console.error("Failed to open external URL:", err);
+      return false;
+    }
+  }
+  return false;
 });
