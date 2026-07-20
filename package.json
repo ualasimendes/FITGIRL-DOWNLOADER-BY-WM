@@ -3,7 +3,7 @@
   "productName": "FitGirl Desktop Extractor",
   "version": "1.0.9",
   "description": "FitGirl Downloader by WM - O gerenciador e extrator definitivo para repacks da FitGirl.",
-  "author": "WM <lacee.mds@gmail.com>",
+  "author": "WM",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
