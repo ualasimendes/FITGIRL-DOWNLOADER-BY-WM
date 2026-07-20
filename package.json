@@ -1,7 +1,7 @@
 {
   "name": "fitgirl-downloader-wm",
   "productName": "FitGirl Desktop Extractor",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "FitGirl Downloader by WM - O gerenciador e extrator definitivo para repacks da FitGirl.",
   "author": "WM <lacee.mds@gmail.com>",
   "private": true,
@@ -12,7 +12,7 @@
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-electron/main.js && esbuild electron/preload.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist-electron/preload.js",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && npm run build:electron",
     "start": "node dist/server.cjs",
-    "clean": "rm -rf dist dist-electron dist-desktop",
+    "clean": "node -e \"const fs = require('fs'); [ 'dist', 'dist-electron', 'dist-desktop' ].forEach(d => { try { fs.rmSync(d, { recursive: true, force: true }) } catch (e) {} })\"",
     "lint": "tsc --noEmit",
     "package": "electron-builder --win",
     "publish": "electron-builder --win --publish always",

@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import pkg from "electron-updater";
+import net from "net";
 const { autoUpdater } = pkg;
 
 // Get __dirname equivalent in ESM
@@ -10,20 +11,65 @@ const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = !app.isPackaged || process.env.NODE_ENV === "development";
+let activePort = 3000;
+
+// Helper to find a free port starting from startPort
+function findFreePort(startPort: number): Promise<number> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", () => {
+      resolve(findFreePort(startPort + 1));
+    });
+    server.listen(startPort, "127.0.0.1", () => {
+      const { port } = server.address() as net.AddressInfo;
+      server.close(() => {
+        resolve(port);
+      });
+    });
+  });
+}
+
+// Helper to wait until the server is listening
+function waitForServer(port: number, retries = 30, delay = 100): Promise<boolean> {
+  return new Promise((resolve) => {
+    let attempt = 0;
+    const check = () => {
+      attempt++;
+      const socket = net.connect(port, "127.0.0.1", () => {
+        socket.end();
+        resolve(true);
+      });
+      socket.on("error", () => {
+        if (attempt >= retries) {
+          resolve(false);
+        } else {
+          setTimeout(check, delay);
+        }
+      });
+    };
+    check();
+  });
+}
 
 // Start the Express server in production
 async function startExpressServer() {
   if (!isDev) {
     try {
-      console.log("Starting production Express server...");
+      activePort = await findFreePort(3000);
+      process.env.PORT = activePort.toString();
+      console.log(`Starting production Express server on port ${activePort}...`);
       // In production, the compiled server is bundled at dist/server.cjs
-      // We dynamically load it to start the Express server on port 3000
+      // We dynamically load it to start the Express server
       const serverPath = path.join(app.getAppPath(), "dist", "server.cjs");
       await import(serverPath);
       console.log("Production Express server started successfully.");
     } catch (error) {
       console.error("Failed to start production Express server:", error);
     }
+  } else {
+    process.env.PORT = "3000";
+    activePort = 3000;
   }
 }
 
@@ -40,9 +86,8 @@ function createWindow() {
     }
   });
 
-  // Load the app - in both dev and production, we load from localhost:3000
-  // as the Express server serves Vite dev middleware or static dist assets
-  mainWindow.loadURL("http://localhost:3000");
+  // Load the app - load from the correct dynamically allocated port
+  mainWindow.loadURL(`http://localhost:${activePort}`);
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -127,6 +172,15 @@ function setupAutoUpdater() {
 // App event listeners
 app.whenReady().then(async () => {
   await startExpressServer();
+  
+  // Wait for Express server to be up and responsive
+  const isServerReady = await waitForServer(activePort);
+  if (!isServerReady) {
+    console.warn(`[Warning] Express server on port ${activePort} is taking too long to respond. Loading window anyway...`);
+  } else {
+    console.log(`[Success] Express server verified healthy on port ${activePort}`);
+  }
+
   createWindow();
   setupAutoUpdater();
 

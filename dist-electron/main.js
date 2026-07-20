@@ -3,21 +3,63 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import pkg from "electron-updater";
+import net from "net";
 var { autoUpdater } = pkg;
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = path.dirname(__filename);
 var mainWindow = null;
 var isDev = !app.isPackaged || process.env.NODE_ENV === "development";
+var activePort = 3e3;
+function findFreePort(startPort) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", () => {
+      resolve(findFreePort(startPort + 1));
+    });
+    server.listen(startPort, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => {
+        resolve(port);
+      });
+    });
+  });
+}
+function waitForServer(port, retries = 30, delay = 100) {
+  return new Promise((resolve) => {
+    let attempt = 0;
+    const check = () => {
+      attempt++;
+      const socket = net.connect(port, "127.0.0.1", () => {
+        socket.end();
+        resolve(true);
+      });
+      socket.on("error", () => {
+        if (attempt >= retries) {
+          resolve(false);
+        } else {
+          setTimeout(check, delay);
+        }
+      });
+    };
+    check();
+  });
+}
 async function startExpressServer() {
   if (!isDev) {
     try {
-      console.log("Starting production Express server...");
+      activePort = await findFreePort(3e3);
+      process.env.PORT = activePort.toString();
+      console.log(`Starting production Express server on port ${activePort}...`);
       const serverPath = path.join(app.getAppPath(), "dist", "server.cjs");
       await import(serverPath);
       console.log("Production Express server started successfully.");
     } catch (error) {
       console.error("Failed to start production Express server:", error);
     }
+  } else {
+    process.env.PORT = "3000";
+    activePort = 3e3;
   }
 }
 function createWindow() {
@@ -32,7 +74,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js")
     }
   });
-  mainWindow.loadURL("http://localhost:3000");
+  mainWindow.loadURL(`http://localhost:${activePort}`);
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -98,6 +140,12 @@ function setupAutoUpdater() {
 }
 app.whenReady().then(async () => {
   await startExpressServer();
+  const isServerReady = await waitForServer(activePort);
+  if (!isServerReady) {
+    console.warn(`[Warning] Express server on port ${activePort} is taking too long to respond. Loading window anyway...`);
+  } else {
+    console.log(`[Success] Express server verified healthy on port ${activePort}`);
+  }
   createWindow();
   setupAutoUpdater();
   app.on("activate", () => {
